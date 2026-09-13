@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <queue>
 
@@ -11,7 +12,12 @@ namespace inferx
     class DynamicBatcher
     {
     public:
-        explicit DynamicBatcher(std::size_t maxBatchSize);
+        using Clock = std::chrono::steady_clock;
+
+        DynamicBatcher(
+            std::size_t maxBatchSize,
+            std::chrono::milliseconds maxWaitTime
+        );
 
         void addRequest(const InferenceRequest& request);
 
@@ -24,7 +30,11 @@ namespace inferx
         std::size_t waitingCount() const;
 
     private:
+        bool hasTimedOut() const;
+
         std::size_t maxBatchSize_;
+
+        std::chrono::milliseconds maxWaitTime_;
 
         std::queue<InferenceRequest> waitingQueue_;
     };

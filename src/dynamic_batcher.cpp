@@ -5,13 +5,24 @@
 
 namespace inferx
 {
-    DynamicBatcher::DynamicBatcher(std::size_t maxBatchSize)
-        : maxBatchSize_(maxBatchSize)
+    DynamicBatcher::DynamicBatcher(
+        std::size_t maxBatchSize,
+        std::chrono::milliseconds maxWaitTime
+    )
+        : maxBatchSize_(maxBatchSize),
+          maxWaitTime_(maxWaitTime)
     {
         if (maxBatchSize_ == 0)
         {
             throw std::invalid_argument(
                 "Maximum batch size must be greater than zero."
+            );
+        }
+
+        if (maxWaitTime_.count() < 0)
+        {
+            throw std::invalid_argument(
+                "Maximum wait time cannot be negative."
             );
         }
     }
@@ -23,9 +34,35 @@ namespace inferx
         waitingQueue_.push(request);
     }
 
+    bool DynamicBatcher::hasTimedOut() const
+    {
+        if (waitingQueue_.empty())
+        {
+            return false;
+        }
+
+        const auto now = Clock::now();
+
+        const auto oldestArrival =
+            waitingQueue_.front().getArrivalTime();
+
+        const auto waitingTime =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - oldestArrival
+            );
+
+        return waitingTime >= maxWaitTime_;
+    }
+
     bool DynamicBatcher::hasReadyBatch() const
     {
-        return waitingQueue_.size() >= maxBatchSize_;
+        if (waitingQueue_.empty())
+        {
+            return false;
+        }
+
+        return waitingQueue_.size() >= maxBatchSize_
+            || hasTimedOut();
     }
 
     Batch DynamicBatcher::createBatch()

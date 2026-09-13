@@ -1,4 +1,6 @@
+#include <chrono>
 #include <iostream>
+#include <thread>
 
 #include "inferx/batch.hpp"
 #include "inferx/dynamic_batcher.hpp"
@@ -23,9 +25,7 @@ void printBatch(
             << request.getRequestId()
             << " | Model: "
             << request.getModelName()
-            << " | Processing Time: "
-            << request.getProcessingTimeMs()
-            << " ms\n";
+            << '\n';
     }
 
     std::cout << '\n';
@@ -34,11 +34,14 @@ void printBatch(
 int main()
 {
     std::cout << "=====================================\n";
-    std::cout << "             InferX v0.4             \n";
+    std::cout << "             InferX v0.5             \n";
     std::cout << " AI Inference Scheduler Simulator    \n";
     std::cout << "=====================================\n\n";
 
-    inferx::DynamicBatcher batcher(4);
+    inferx::DynamicBatcher batcher(
+        4,
+        std::chrono::milliseconds(100)
+    );
 
     inferx::InferenceRequest request1(
         1,
@@ -54,55 +57,36 @@ int main()
         30
     );
 
-    inferx::InferenceRequest request3(
-        3,
-        "embedding-model",
-        inferx::Priority::Low,
-        20
-    );
-
-    inferx::InferenceRequest request4(
-        4,
-        "speech-model",
-        inferx::Priority::High,
-        40
-    );
-
-    inferx::InferenceRequest request5(
-        5,
-        "ranking-model",
-        inferx::Priority::Normal,
-        25
-    );
-
-    inferx::InferenceRequest request6(
-        6,
-        "recommendation-model",
-        inferx::Priority::Normal,
-        35
-    );
-
     batcher.addRequest(request1);
     batcher.addRequest(request2);
-    batcher.addRequest(request3);
-    batcher.addRequest(request4);
-    batcher.addRequest(request5);
-    batcher.addRequest(request6);
 
     std::cout
         << "Requests waiting: "
         << batcher.waitingCount()
+        << '\n';
+
+    std::cout
+        << "Ready immediately? "
+        << (batcher.hasReadyBatch() ? "YES" : "NO")
         << "\n\n";
 
-    int batchNumber = 1;
+    std::cout
+        << "Waiting 150 ms to trigger timeout...\n\n";
 
-    while (!batcher.empty())
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(150)
+    );
+
+    std::cout
+        << "Ready after timeout? "
+        << (batcher.hasReadyBatch() ? "YES" : "NO")
+        << "\n\n";
+
+    if (batcher.hasReadyBatch())
     {
         inferx::Batch batch = batcher.createBatch();
 
-        printBatch(batch, batchNumber);
-
-        ++batchNumber;
+        printBatch(batch, 1);
     }
 
     return 0;
