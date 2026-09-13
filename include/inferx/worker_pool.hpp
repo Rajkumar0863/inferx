@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "inferx/batch.hpp"
+#include "inferx/metrics.hpp"
 #include "inferx/thread_safe_queue.hpp"
 
 namespace inferx
@@ -14,7 +15,10 @@ namespace inferx
     class WorkerPool
     {
     public:
-        explicit WorkerPool(std::size_t workerCount);
+        WorkerPool(
+            std::size_t workerCount,
+            Metrics& metrics
+        );
 
         ~WorkerPool();
 
@@ -40,5 +44,7 @@ namespace inferx
         std::atomic<bool> stopped_{false};
 
         std::mutex outputMutex_;
+
+        Metrics& metrics_;
     };
 }

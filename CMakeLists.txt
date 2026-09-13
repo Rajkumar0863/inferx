@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     InferX
-    VERSION 0.6.0
+    VERSION 0.7.0
     DESCRIPTION "AI Inference Request Scheduler Simulator"
     LANGUAGES CXX
 )
@@ -20,6 +20,7 @@ add_executable(
     src/batch.cpp
     src/dynamic_batcher.cpp
     src/worker_pool.cpp
+    src/metrics.cpp
 )
 
 target_include_directories(

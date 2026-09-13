@@ -5,10 +5,15 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 namespace inferx
 {
-    WorkerPool::WorkerPool(std::size_t workerCount)
+    WorkerPool::WorkerPool(
+        std::size_t workerCount,
+        Metrics& metrics
+    )
+        : metrics_(metrics)
     {
         if (workerCount == 0)
         {
@@ -43,7 +48,9 @@ namespace inferx
             );
         }
 
-        batchQueue_.push(std::move(batch));
+        batchQueue_.push(
+            std::move(batch)
+        );
     }
 
     void WorkerPool::shutdown()
@@ -69,13 +76,18 @@ namespace inferx
         }
     }
 
-    void WorkerPool::workerLoop(std::size_t workerId)
+    void WorkerPool::workerLoop(
+        std::size_t workerId
+    )
     {
         Batch batch;
 
         while (batchQueue_.waitAndPop(batch))
         {
-            processBatch(workerId, batch);
+            processBatch(
+                workerId,
+                batch
+            );
         }
     }
 
@@ -86,7 +98,8 @@ namespace inferx
     {
         int simulatedProcessingTimeMs = 0;
 
-        for (const auto& request : batch.getRequests())
+        for (const auto& request :
+             batch.getRequests())
         {
             simulatedProcessingTimeMs =
                 std::max(
@@ -96,7 +109,8 @@ namespace inferx
         }
 
         {
-            std::lock_guard<std::mutex> lock(outputMutex_);
+            std::lock_guard<std::mutex>
+                lock(outputMutex_);
 
             std::cout
                 << "Worker "
@@ -107,7 +121,8 @@ namespace inferx
 
             std::cout << "  Requests: ";
 
-            for (const auto& request : batch.getRequests())
+            for (const auto& request :
+                 batch.getRequests())
             {
                 std::cout
                     << request.getRequestId()
@@ -123,8 +138,25 @@ namespace inferx
             )
         );
 
+        const auto completionTime =
+            Metrics::Clock::now();
+
+        for (const auto& request :
+             batch.getRequests())
         {
-            std::lock_guard<std::mutex> lock(outputMutex_);
+            metrics_.recordRequest(
+                request.getArrivalTime(),
+                completionTime
+            );
+        }
+
+        metrics_.recordBatch(
+            batch.size()
+        );
+
+        {
+            std::lock_guard<std::mutex>
+                lock(outputMutex_);
 
             std::cout
                 << "Worker "
