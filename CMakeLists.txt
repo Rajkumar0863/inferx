@@ -7,18 +7,16 @@ project(
     LANGUAGES CXX
 )
 
-# Use the C++20 standard.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Build the InferX executable.
 add_executable(
     inferx
     src/main.cpp
+    src/inference_request.cpp
 )
 
-# Allow source files to include headers from include/.
 target_include_directories(
     inferx
     PRIVATE
