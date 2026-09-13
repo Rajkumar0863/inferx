@@ -1,12 +1,30 @@
 #include <iostream>
+#include <string>
 
-#include "inferx/fifo_scheduler.hpp"
 #include "inferx/inference_request.hpp"
+#include "inferx/priority_scheduler.hpp"
+
+std::string priorityToString(inferx::Priority priority)
+{
+    switch (priority)
+    {
+        case inferx::Priority::High:
+            return "HIGH";
+
+        case inferx::Priority::Normal:
+            return "NORMAL";
+
+        case inferx::Priority::Low:
+            return "LOW";
+    }
+
+    return "UNKNOWN";
+}
 
 int main()
 {
     std::cout << "=====================================\n";
-    std::cout << "             InferX v0.2             \n";
+    std::cout << "             InferX v0.3             \n";
     std::cout << " AI Inference Scheduler Simulator    \n";
     std::cout << "=====================================\n\n";
 
@@ -31,13 +49,29 @@ int main()
         20
     );
 
-    inferx::FifoScheduler scheduler;
+    inferx::InferenceRequest request4(
+        4,
+        "speech-model",
+        inferx::Priority::High,
+        40
+    );
+
+    inferx::InferenceRequest request5(
+        5,
+        "ranking-model",
+        inferx::Priority::Normal,
+        25
+    );
+
+    inferx::PriorityScheduler scheduler;
 
     scheduler.enqueue(request1);
     scheduler.enqueue(request2);
     scheduler.enqueue(request3);
+    scheduler.enqueue(request4);
+    scheduler.enqueue(request5);
 
-    std::cout << "Requests added to FIFO scheduler.\n";
+    std::cout << "Requests added to priority scheduler.\n";
     std::cout << "Queue size: " << scheduler.size() << "\n\n";
 
     std::cout << "Dequeue order:\n";
@@ -49,6 +83,8 @@ int main()
         std::cout
             << "Request ID: "
             << request.getRequestId()
+            << " | Priority: "
+            << priorityToString(request.getPriority())
             << " | Model: "
             << request.getModelName()
             << " | Processing Time: "
