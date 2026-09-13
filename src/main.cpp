@@ -1,47 +1,27 @@
 #include <chrono>
 #include <iostream>
-#include <thread>
 
 #include "inferx/batch.hpp"
 #include "inferx/dynamic_batcher.hpp"
 #include "inferx/inference_request.hpp"
-
-void printBatch(
-    const inferx::Batch& batch,
-    int batchNumber
-)
-{
-    std::cout
-        << "Batch "
-        << batchNumber
-        << " | Size: "
-        << batch.size()
-        << '\n';
-
-    for (const auto& request : batch.getRequests())
-    {
-        std::cout
-            << "  Request ID: "
-            << request.getRequestId()
-            << " | Model: "
-            << request.getModelName()
-            << '\n';
-    }
-
-    std::cout << '\n';
-}
+#include "inferx/worker_pool.hpp"
 
 int main()
 {
     std::cout << "=====================================\n";
-    std::cout << "             InferX v0.5             \n";
+    std::cout << "             InferX v0.6             \n";
     std::cout << " AI Inference Scheduler Simulator    \n";
     std::cout << "=====================================\n\n";
 
+    constexpr std::size_t maxBatchSize = 3;
+    constexpr std::size_t workerCount = 2;
+
     inferx::DynamicBatcher batcher(
-        4,
+        maxBatchSize,
         std::chrono::milliseconds(100)
     );
+
+    inferx::WorkerPool workers(workerCount);
 
     inferx::InferenceRequest request1(
         1,
@@ -57,37 +37,81 @@ int main()
         30
     );
 
+    inferx::InferenceRequest request3(
+        3,
+        "embedding-model",
+        inferx::Priority::Low,
+        20
+    );
+
+    inferx::InferenceRequest request4(
+        4,
+        "speech-model",
+        inferx::Priority::High,
+        40
+    );
+
+    inferx::InferenceRequest request5(
+        5,
+        "ranking-model",
+        inferx::Priority::Normal,
+        25
+    );
+
+    inferx::InferenceRequest request6(
+        6,
+        "recommendation-model",
+        inferx::Priority::Normal,
+        35
+    );
+
     batcher.addRequest(request1);
     batcher.addRequest(request2);
+    batcher.addRequest(request3);
+    batcher.addRequest(request4);
+    batcher.addRequest(request5);
+    batcher.addRequest(request6);
 
     std::cout
-        << "Requests waiting: "
+        << "Requests received: "
         << batcher.waitingCount()
         << '\n';
 
     std::cout
-        << "Ready immediately? "
-        << (batcher.hasReadyBatch() ? "YES" : "NO")
-        << "\n\n";
+        << "Worker threads: "
+        << workerCount
+        << '\n';
 
     std::cout
-        << "Waiting 150 ms to trigger timeout...\n\n";
-
-    std::this_thread::sleep_for(
-        std::chrono::milliseconds(150)
-    );
-
-    std::cout
-        << "Ready after timeout? "
-        << (batcher.hasReadyBatch() ? "YES" : "NO")
+        << "Maximum batch size: "
+        << maxBatchSize
         << "\n\n";
 
-    if (batcher.hasReadyBatch())
+    int batchNumber = 1;
+
+    while (!batcher.empty())
     {
         inferx::Batch batch = batcher.createBatch();
 
-        printBatch(batch, 1);
+        std::cout
+            << "Submitting Batch "
+            << batchNumber
+            << " with "
+            << batch.size()
+            << " requests.\n";
+
+        workers.submit(std::move(batch));
+
+        ++batchNumber;
     }
+
+    std::cout
+        << "\nWaiting for workers to finish...\n\n";
+
+    workers.shutdown();
+
+    std::cout
+        << "All inference batches completed.\n";
 
     return 0;
 }
