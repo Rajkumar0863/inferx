@@ -1,32 +1,44 @@
 #include <iostream>
-#include <string>
 
+#include "inferx/batch.hpp"
+#include "inferx/dynamic_batcher.hpp"
 #include "inferx/inference_request.hpp"
-#include "inferx/priority_scheduler.hpp"
 
-std::string priorityToString(inferx::Priority priority)
+void printBatch(
+    const inferx::Batch& batch,
+    int batchNumber
+)
 {
-    switch (priority)
+    std::cout
+        << "Batch "
+        << batchNumber
+        << " | Size: "
+        << batch.size()
+        << '\n';
+
+    for (const auto& request : batch.getRequests())
     {
-        case inferx::Priority::High:
-            return "HIGH";
-
-        case inferx::Priority::Normal:
-            return "NORMAL";
-
-        case inferx::Priority::Low:
-            return "LOW";
+        std::cout
+            << "  Request ID: "
+            << request.getRequestId()
+            << " | Model: "
+            << request.getModelName()
+            << " | Processing Time: "
+            << request.getProcessingTimeMs()
+            << " ms\n";
     }
 
-    return "UNKNOWN";
+    std::cout << '\n';
 }
 
 int main()
 {
     std::cout << "=====================================\n";
-    std::cout << "             InferX v0.3             \n";
+    std::cout << "             InferX v0.4             \n";
     std::cout << " AI Inference Scheduler Simulator    \n";
     std::cout << "=====================================\n\n";
+
+    inferx::DynamicBatcher batcher(4);
 
     inferx::InferenceRequest request1(
         1,
@@ -63,33 +75,34 @@ int main()
         25
     );
 
-    inferx::PriorityScheduler scheduler;
+    inferx::InferenceRequest request6(
+        6,
+        "recommendation-model",
+        inferx::Priority::Normal,
+        35
+    );
 
-    scheduler.enqueue(request1);
-    scheduler.enqueue(request2);
-    scheduler.enqueue(request3);
-    scheduler.enqueue(request4);
-    scheduler.enqueue(request5);
+    batcher.addRequest(request1);
+    batcher.addRequest(request2);
+    batcher.addRequest(request3);
+    batcher.addRequest(request4);
+    batcher.addRequest(request5);
+    batcher.addRequest(request6);
 
-    std::cout << "Requests added to priority scheduler.\n";
-    std::cout << "Queue size: " << scheduler.size() << "\n\n";
+    std::cout
+        << "Requests waiting: "
+        << batcher.waitingCount()
+        << "\n\n";
 
-    std::cout << "Dequeue order:\n";
+    int batchNumber = 1;
 
-    while (!scheduler.empty())
+    while (!batcher.empty())
     {
-        inferx::InferenceRequest request = scheduler.dequeue();
+        inferx::Batch batch = batcher.createBatch();
 
-        std::cout
-            << "Request ID: "
-            << request.getRequestId()
-            << " | Priority: "
-            << priorityToString(request.getPriority())
-            << " | Model: "
-            << request.getModelName()
-            << " | Processing Time: "
-            << request.getProcessingTimeMs()
-            << " ms\n";
+        printBatch(batch, batchNumber);
+
+        ++batchNumber;
     }
 
     return 0;
