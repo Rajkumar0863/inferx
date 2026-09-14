@@ -1,1066 +1,626 @@
-\# InferX
+# InferX
 
+**InferX** is a C++20 AI inference scheduling simulator built to explore the systems concepts behind serving machine-learning inference workloads.
 
+The project currently models incoming inference requests, scheduling policies, dynamic batching, concurrent batch execution through a worker pool, and runtime performance measurement.
 
-\*\*InferX\*\* is a modern C++20 AI inference request scheduler simulator built to explore scheduling, dynamic batching, concurrency, and performance trade-offs in AI inference-serving systems.
+InferX is being developed incrementally, with each milestone introducing another component of an inference-serving pipeline.
 
+> **Current version:** v0.8  
+> **Status:** Active development
 
+---
 
-The project is being developed as a systems-programming project with a focus on clean C++ design, multithreading, scheduling algorithms, automated testing, and performance measurement.
+## Why InferX?
 
+Modern AI inference systems often receive many requests concurrently.
 
+Executing every request independently can lead to inefficient resource usage, while poor scheduling can increase latency for important requests.
 
-> \*\*Current status:\*\* Early development. The C++20/CMake project skeleton is being established first, with scheduling, batching, concurrency, testing, and benchmarking added incrementally.
+Inference-serving systems therefore need mechanisms such as:
 
+- request queues
+- scheduling policies
+- priority handling
+- dynamic batching
+- concurrent workers
+- latency measurement
+- throughput monitoring
 
+InferX provides a simplified environment for implementing and experimenting with these concepts in modern C++.
 
-\---
+The project does **not** execute real neural-network models or GPU kernels. Processing time is currently simulated so that the scheduling and concurrency behaviour can be studied independently.
 
+---
 
-
-\## Motivation
-
-
-
-Modern AI inference systems may receive many requests concurrently.
-
-
-
-A serving system must make decisions such as:
-
-
-
-\- Which request should execute next?
-
-\- Should high-priority requests be served before normal requests?
-
-\- Should multiple requests be grouped into a batch?
-
-\- How long should the system wait for a batch to fill?
-
-\- How many workers should process requests concurrently?
-
-\- How do scheduling and batching decisions affect latency and throughput?
-
-
-
-InferX provides a controlled simulator for experimenting with these ideas without requiring a real GPU or machine-learning model.
-
-
-
-\---
-
-
-
-\## Planned Architecture
-
-
+## Current Architecture
 
 ```text
-
-&#x20;                 Incoming Requests
-
-&#x20;                        |
-
-&#x20;                        v
-
-&#x20;               +-----------------+
-
-&#x20;               |  Request Queue  |
-
-&#x20;               +-----------------+
-
-&#x20;                        |
-
-&#x20;                        v
-
-&#x20;               +-----------------+
-
-&#x20;               |    Scheduler    |
-
-&#x20;               | FIFO / Priority |
-
-&#x20;               +-----------------+
-
-&#x20;                        |
-
-&#x20;                        v
-
-&#x20;               +-----------------+
-
-&#x20;               | Dynamic Batcher |
-
-&#x20;               +-----------------+
-
-&#x20;                        |
-
-&#x20;                        v
-
-&#x20;             +---------------------+
-
-&#x20;             | Concurrent Workers  |
-
-&#x20;             +---------------------+
-
-&#x20;                |       |       |
-
-&#x20;                v       v       v
-
-&#x20;               W1      W2      W3
-
-&#x20;                 \\      |      /
-
-&#x20;                  \\     |     /
-
-&#x20;                   v    v    v
-
-&#x20;               Simulated Inference
-
-&#x20;                        |
-
-&#x20;                        v
-
-&#x20;               +-----------------+
-
-&#x20;               | Metrics Engine  |
-
-&#x20;               +-----------------+
-
-&#x20;                        |
-
-&#x20;                        v
-
-&#x20;              Latency / Throughput
-
-&#x20;                 P50 / P95 / P99
-
+                  +----------------------+
+                  |   Inference Request  |
+                  +----------+-----------+
+                             |
+                             v
+                  +----------------------+
+                  |      Scheduler       |
+                  |  FIFO / Priority     |
+                  +----------+-----------+
+                             |
+                             v
+                  +----------------------+
+                  |   Dynamic Batcher    |
+                  +----------+-----------+
+                             |
+                             v
+                  +----------------------+
+                  |  Thread-Safe Queue   |
+                  +----------+-----------+
+                             |
+                    +--------+--------+
+                    |                 |
+                    v                 v
+              +-----------+     +-----------+
+              | Worker 1  |     | Worker 2  |
+              +-----+-----+     +-----+-----+
+                    |                 |
+                    +--------+--------+
+                             |
+                             v
+                  +----------------------+
+                  |    Metrics Engine    |
+                  +----------------------+
+                    |   |   |   |   |
+                    v   v   v   v   v
+                   Avg P50 P95 P99 Throughput
 ```
 
+---
 
+## Implemented Features
 
-\---
+### Inference Request Model
 
+InferX represents an inference workload using an `InferenceRequest`.
 
+A request contains information used by the scheduling simulator, including:
 
-\## Development Goals
+- request identifier
+- model name
+- priority
+- simulated processing time
+- arrival time
 
+The arrival timestamp is used later by the metrics engine to calculate end-to-end request latency.
 
+---
 
-InferX is planned to support:
+### FIFO Scheduler
 
-
-
-\- Modern C++20
-
-\- FIFO scheduling
-
-\- Priority-based scheduling
-
-\- Dynamic request batching
-
-\- Configurable batch size
-
-\- Configurable batching timeout
-
-\- Concurrent worker threads
-
-\- Thread-safe queues
-
-\- Simulated inference workloads
-
-\- Latency measurement
-
-\- Throughput measurement
-
-\- P50, P95 and P99 latency statistics
-
-\- Scheduler benchmarking
-
-\- Unit testing with GoogleTest
-
-\- CMake-based builds
-
-
-
-\---
-
-
-
-\## Scheduling Strategies
-
-
-
-\### FIFO
-
-
-
-The FIFO scheduler will process requests in arrival order.
-
-
+The FIFO scheduler processes requests in the same order in which they arrive.
 
 ```text
+Request 1
+Request 2
+Request 3
 
-R1 -> R2 -> R3 -> R4
+     ↓
 
+1 → 2 → 3
 ```
 
+This provides the baseline scheduling strategy.
 
+---
 
-This provides a simple baseline against which other scheduling strategies can be compared.
+### Priority Scheduler
 
+InferX also supports priority-based scheduling.
 
-
-\### Priority Scheduling
-
-
-
-Requests will be able to carry priorities such as:
-
-
+Requests can currently use priority levels such as:
 
 ```text
-
 HIGH
-
 NORMAL
-
 LOW
-
 ```
 
+Higher-priority requests are selected before lower-priority requests.
 
-
-A priority scheduler will select higher-priority requests before lower-priority requests while preserving deterministic behaviour between requests of equal priority.
-
-
+For requests with the same priority, insertion order is preserved.
 
 Example:
 
-
-
 ```text
-
-Arrival:
-
-
-
-R1 LOW
-
-R2 HIGH
-
-R3 NORMAL
-
-R4 HIGH
-
-
-
-Expected priority order:
-
-
-
-R2 -> R4 -> R3 -> R1
-
+Request 1 → NORMAL
+Request 2 → HIGH
+Request 3 → LOW
+Request 4 → HIGH
+Request 5 → NORMAL
 ```
 
+Possible dequeue order:
 
+```text
+2 → 4 → 1 → 5 → 3
+```
 
-\---
+---
 
+### Dynamic Batching
 
+Instead of processing every request individually, InferX can combine requests into batches.
 
-\## Dynamic Batching
+A `DynamicBatcher` currently supports two batch-readiness conditions:
 
+1. the configured maximum batch size is reached
+2. the configured waiting timeout is reached
 
+Example with a maximum batch size of three:
 
-InferX will support grouping multiple compatible requests into execution batches.
+```text
+Requests:
 
+1 2 3 4 5 6
 
+        ↓
+
+Batch 1
+[1 2 3]
+
+Batch 2
+[4 5 6]
+```
+
+This models an important idea used by inference-serving systems: balancing batching efficiency against request waiting time.
+
+---
+
+### Thread-Safe Queue
+
+Batches are transferred to workers using a thread-safe queue.
+
+The queue coordinates producer and consumer activity and supports safe shutdown of waiting worker threads.
+
+This component provides synchronization between batch creation and concurrent execution.
+
+---
+
+### Concurrent Worker Pool
+
+InferX uses a worker pool built with C++ threads.
+
+Multiple workers can consume batches concurrently.
 
 For example:
 
-
-
 ```text
-
-Maximum batch size: 4
-
-
-
-Incoming:
-
-R1 R2 R3 R4 R5 R6
-
-
-
-Batches:
-
-
-
-Batch 1:
-
-R1 R2 R3 R4
-
-
-
-Batch 2:
-
-R5 R6
-
+              Batch Queue
+                  |
+          +-------+-------+
+          |               |
+          v               v
+      Worker 1         Worker 2
+          |               |
+          v               v
+       Batch A          Batch B
 ```
 
+Batch processing time is currently simulated using timed waits.
 
+This allows InferX to demonstrate and measure concurrent execution without requiring an actual inference runtime.
 
-A batch will eventually be dispatched when either:
+---
 
+## Performance Metrics
 
+InferX v0.7 introduced a thread-safe metrics collector.
 
-1\. The maximum configured batch size is reached, or
+When requests complete, worker threads record their completion timestamps.
 
-2\. The oldest eligible request reaches the configured waiting-time threshold.
+The metrics engine currently calculates:
 
+- number of requests processed
+- number of batches processed
+- average request latency
+- P50 latency
+- P95 latency
+- P99 latency
+- throughput in requests per second
+- average batch size
 
-
-This will allow InferX to explore the trade-off between throughput and request latency.
-
-
-
-\---
-
-
-
-\## Concurrency
-
-
-
-A later development phase will introduce concurrent worker threads.
-
-
+Example output from a small functional run:
 
 ```text
-
-&#x20;               Batch Queue
-
-&#x20;                    |
-
-&#x20;            +-------+-------+
-
-&#x20;            |       |       |
-
-&#x20;            v       v       v
-
-&#x20;         Worker 1 Worker 2 Worker 3
-
+=====================================
+      InferX Performance Report
+=====================================
+Requests processed : 6
+Batches processed  : 2
+Average latency    : <measured at runtime>
+P50 latency        : <measured at runtime>
+P95 latency        : <measured at runtime>
+P99 latency        : <measured at runtime>
+Throughput         : <measured at runtime>
+Average batch size : 3.00
+=====================================
 ```
 
+Latency and throughput values vary between runs because they are measured from actual program execution.
 
+The current six-request workload is intended as a functional demonstration and should **not** be interpreted as a formal performance benchmark.
 
-The implementation is planned to use C++ concurrency primitives including:
+---
 
+## Automated Testing
 
+InferX uses **GoogleTest** for automated testing.
 
-\- `std::thread`
+The current test suite contains **8 tests** covering four major components.
 
-\- `std::mutex`
+### FIFO Scheduler
 
-\- `std::condition\_variable`
+Tests verify:
 
-\- `std::atomic`
+- insertion order is preserved
+- dequeuing from an empty scheduler throws an error
 
+### Priority Scheduler
 
+Tests verify:
 
-\---
+- higher-priority requests are processed first
+- insertion order is preserved for equal-priority requests
 
+### Dynamic Batcher
 
+Tests verify:
 
-\## Performance Metrics
+- a batch becomes ready when maximum batch size is reached
+- a partially filled batch becomes ready after its timeout
 
+### Metrics Engine
 
+Tests verify:
 
-InferX will instrument completed requests and calculate metrics such as:
+- request and batch statistics are recorded
+- percentile calculations produce the expected results
 
-
-
-\### Latency
-
-
+Current test result:
 
 ```text
-
-latency = completion\_time - arrival\_time
-
+100% tests passed, 0 tests failed out of 8
 ```
 
+The tests are integrated with CMake and CTest.
 
+---
 
-\### Percentile Latency
-
-
-
-Planned percentile statistics:
-
-
-
-```text
-
-P50
-
-P95
-
-P99
-
-```
-
-
-
-\### Throughput
-
-
-
-```text
-
-throughput = completed\_requests / elapsed\_time
-
-```
-
-
-
-reported in requests per second.
-
-
-
-\### Batch Statistics
-
-
-
-Planned statistics include:
-
-
-
-\- Number of requests processed
-
-\- Number of batches
-
-\- Average batch size
-
-\- End-to-end request latency
-
-
-
-\---
-
-
-
-\## Example Future Benchmark Format
-
-
-
-The following demonstrates the intended output format. The values are illustrative and are \*\*not measured InferX results\*\*.
-
-
-
-```text
-
-========================================
-
-&#x20;      InferX Performance Report
-
-========================================
-
-
-
-Scheduler       : Priority
-
-Requests        : 10000
-
-Workers         : 4
-
-Maximum Batch   : 8
-
-
-
-Throughput      : 842.31 requests/sec
-
-
-
-Latency
-
-\----------------------------------------
-
-Average         : 17.32 ms
-
-P50             : 12.47 ms
-
-P95             : 35.88 ms
-
-P99             : 51.06 ms
-
-
-
-Average Batch   : 6.43
-
-
-
-========================================
-
-```
-
-
-
-Actual benchmark results will be added only after the corresponding implementation is complete.
-
-
-
-\---
-
-
-
-\## Project Structure
-
-
-
-```text
-
-inferx/
-
-|
-
-|-- CMakeLists.txt
-
-|-- README.md
-
-|-- LICENSE
-
-|-- .gitignore
-
-|
-
-|-- include/
-
-|   `-- inferx/
-
-|
-
-|-- src/
-
-|   `-- main.cpp
-
-|
-
-|-- tests/
-
-|
-
-|-- benchmarks/
-
-|
-
-`-- docs/
-
-```
-
-
-
-The structure will expand as each subsystem is implemented.
-
-
-
-\---
-
-
-
-\## Technology Stack
-
-
+## Technology Stack
 
 | Area | Technology |
-
 |---|---|
-
 | Language | C++20 |
-
 | Build System | CMake |
-
-| Testing | GoogleTest (planned) |
-
-| Concurrency | C++ Standard Library (planned) |
-
-| Performance Measurement | `std::chrono` (planned) |
-
+| Compiler | MSVC |
+| Concurrency | `std::thread`, mutexes, atomics |
+| Synchronization | Thread-safe queue |
+| Data Structures | STL containers and queues |
+| Testing | GoogleTest |
+| Test Runner | CTest |
 | Version Control | Git / GitHub |
 
+---
 
+## Project Structure
 
-\---
-
-
-
-\## Build Instructions
-
-
-
-\### Requirements
-
-
-
-You need:
-
-
-
-\- A C++20-compatible compiler
-
-\- CMake 3.20 or later
-
-\- Git
-
-
-
-Examples of suitable compilers include recent versions of GCC, Clang, or Microsoft Visual C++.
-
-
-
-Check CMake:
-
-
-
-```bash
-
-cmake --version
-
+```text
+inferx/
+│
+├── include/
+│   └── inferx/
+│       ├── inference_request.hpp
+│       ├── fifo_scheduler.hpp
+│       ├── priority_scheduler.hpp
+│       ├── batch.hpp
+│       ├── dynamic_batcher.hpp
+│       ├── thread_safe_queue.hpp
+│       ├── worker_pool.hpp
+│       └── metrics.hpp
+│
+├── src/
+│   ├── main.cpp
+│   ├── inference_request.cpp
+│   ├── fifo_scheduler.cpp
+│   ├── priority_scheduler.cpp
+│   ├── batch.cpp
+│   ├── dynamic_batcher.cpp
+│   ├── worker_pool.cpp
+│   └── metrics.cpp
+│
+├── tests/
+│   ├── test_fifo_scheduler.cpp
+│   ├── test_priority_scheduler.cpp
+│   ├── test_dynamic_batcher.cpp
+│   └── test_metrics.cpp
+│
+├── benchmarks/
+├── docs/
+│
+├── CMakeLists.txt
+├── .gitignore
+└── README.md
 ```
 
+The `benchmarks/` and `docs/` directories are reserved for later project milestones.
 
+---
 
-Check GCC if you are using it:
+## Building InferX
 
+### Requirements
 
+The current Windows development environment uses:
+
+- CMake
+- Visual Studio Build Tools 2022
+- MSVC C++ compiler
+- Git
+
+GoogleTest is obtained automatically through CMake `FetchContent`.
+
+---
+
+### Clone the Repository
 
 ```bash
-
-g++ --version
-
-```
-
-
-
-\---
-
-
-
-\### Clone
-
-
-
-```bash
-
 git clone https://github.com/Rajkumar0863/inferx.git
-
 cd inferx
-
 ```
 
+---
 
+### Configure
 
-\### Configure
-
-
+From a Visual Studio x64 Native Tools Command Prompt:
 
 ```bash
-
 cmake -S . -B build
-
 ```
 
+CMake will configure the InferX targets and fetch GoogleTest when required.
 
+---
 
-\### Build
-
-
+### Build
 
 ```bash
-
 cmake --build build
-
 ```
 
-
-
-\### Run
-
-
-
-For a typical Visual Studio multi-configuration build on Windows:
-
-
+For the default Visual Studio Debug configuration, the executable is generated under:
 
 ```text
-
-build\\Debug\\inferx.exe
-
+build/Debug/inferx.exe
 ```
 
+---
 
+### Run InferX
 
-For a single-configuration build, the executable may instead be located at:
+On Windows:
 
+```bash
+build\Debug\inferx.exe
+```
 
+A successful run displays worker execution followed by the performance report.
+
+---
+
+## Running the Tests
+
+First configure and build the project:
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+Then run:
+
+```bash
+ctest --test-dir build -C Debug --output-on-failure
+```
+
+At the v0.8 milestone, the expected result is:
 
 ```text
-
-build\\inferx.exe
-
+100% tests passed, 0 tests failed out of 8
 ```
 
+---
 
+## Development Milestones
 
-\---
+### v0.1 — Project Foundation
 
+- C++20 project structure
+- CMake build configuration
+- initial executable
 
+### v0.2 — FIFO Scheduling
 
-\## Development Roadmap
+- request queue
+- FIFO scheduling behaviour
 
+### v0.3 — Priority Scheduling
 
+- HIGH / NORMAL / LOW priorities
+- stable ordering for equal priorities
 
-\### Phase 1 - Project Foundation
+### v0.4 — Dynamic Batching
 
+- batch abstraction
+- configurable batch size
+- timeout-based batch readiness
 
+### v0.5 / v0.6 — Concurrent Execution
 
-\- \[x] Create GitHub repository
+- thread-safe queue
+- worker pool
+- concurrent batch processing
+- controlled worker shutdown
 
-\- \[x] Define project scope
+### v0.7 — Performance Metrics
 
-\- \[x] Create README
+- request latency tracking
+- average latency
+- P50 / P95 / P99 latency
+- throughput
+- batch statistics
+- thread-safe metric collection
 
-\- \[x] Configure C++20 with CMake
+### v0.8 — Automated Testing
 
-\- \[ ] Verify local build
+- GoogleTest integration
+- CTest integration
+- FIFO scheduler tests
+- priority scheduler tests
+- dynamic batching tests
+- metrics tests
+- 8 automated tests passing
 
-\- \[ ] Create request model
+---
 
+## Planned Work
 
+The next development stages are planned to include:
 
-\### Phase 2 - Scheduling
+- benchmark harness
+- larger synthetic workloads
+- configurable worker counts
+- configurable batch sizes
+- repeatable performance experiments
+- CSV benchmark export
+- comparison of scheduling configurations
+- additional edge-case and concurrency tests
+- GitHub Actions CI
+- expanded architecture documentation
 
+Potential later extensions may include:
 
+- request cancellation
+- queue backpressure
+- model-aware scheduling
+- starvation prevention
+- load generation
+- additional scheduling policies
 
-\- \[ ] Implement FIFO scheduler
+These features are roadmap items and are **not yet implemented**.
 
-\- \[ ] Implement priority scheduler
+---
 
-\- \[ ] Test scheduling behaviour
+## Benchmarking Status
 
+Formal benchmarking has not yet been completed.
 
+The current performance report measures real execution timing, but the existing six-request workload is primarily intended to validate the scheduler, worker pool, and metrics pipeline.
 
-\### Phase 3 - Dynamic Batching
-
-
-
-\- \[ ] Implement batch representation
-
-\- \[ ] Add configurable maximum batch size
-
-\- \[ ] Add batching timeout
-
-\- \[ ] Test batching behaviour
-
-
-
-\### Phase 4 - Concurrency
-
-
-
-\- \[ ] Implement worker pool
-
-\- \[ ] Implement thread-safe queues
-
-\- \[ ] Add graceful shutdown
-
-\- \[ ] Validate concurrent processing
-
-
-
-\### Phase 5 - Metrics
-
-
-
-\- \[ ] Record request latency
-
-\- \[ ] Calculate average latency
-
-\- \[ ] Calculate P50
-
-\- \[ ] Calculate P95
-
-\- \[ ] Calculate P99
-
-\- \[ ] Calculate throughput
-
-\- \[ ] Record batch statistics
-
-
-
-\### Phase 6 - Testing and Benchmarking
-
-
-
-\- \[ ] Integrate GoogleTest
-
-\- \[ ] Create unit tests
-
-\- \[ ] Create integration tests
-
-\- \[ ] Generate configurable workloads
-
-\- \[ ] Compare scheduling strategies
-
-\- \[ ] Compare batch sizes
-
-\- \[ ] Compare worker counts
-
-\- \[ ] Record reproducible benchmark results
-
-
-
-\### Phase 7 - Documentation
-
-
-
-\- \[ ] Add architecture documentation
-
-\- \[ ] Document design decisions
-
-\- \[ ] Add benchmark results
-
-\- \[ ] Document limitations
-
-\- \[ ] Add usage examples
-
-
-
-\---
-
-
-
-\## Planned Experiments
-
-
-
-Once the simulator is complete, InferX will be used to investigate questions such as:
-
-
-
-\### FIFO vs Priority
-
-
-
-How does priority scheduling affect latency for high-priority requests compared with FIFO?
-
-
-
-\### Worker Count
-
-
-
-How does throughput change when using:
-
-
+Future benchmark work will evaluate larger workloads and compare configurations such as:
 
 ```text
+Requests:
+100
+1,000
+10,000
 
-1 worker
+Worker counts:
+1
+2
+4
+8
 
-2 workers
-
-4 workers
-
-8 workers
-
+Batch sizes:
+1
+2
+4
+8
+16
 ```
 
+Results will only be documented after they have been measured experimentally.
 
+---
 
-\### Batch Size
+## What This Project Demonstrates
 
+InferX currently provides hands-on implementation experience with:
 
+- modern C++20
+- object-oriented design
+- STL data structures
+- scheduling algorithms
+- priority queues
+- batching strategies
+- multithreading
+- synchronization
+- thread-safe shared state
+- worker-pool architecture
+- latency measurement
+- percentile statistics
+- throughput measurement
+- automated unit testing
+- CMake-based C++ project organization
+- Git-based incremental development
 
-How does performance change with:
+---
 
+## Scope
 
+InferX is an educational systems-engineering simulator.
 
-```text
+It is **not** currently:
 
-Batch size 1
+- a production inference server
+- a GPU scheduler
+- a CUDA runtime
+- a distributed inference platform
+- a replacement for production serving systems
 
-Batch size 2
+The goal is to implement and understand the underlying scheduling, batching, concurrency, testing, and performance concepts before extending the project further.
 
-Batch size 4
+---
 
-Batch size 8
+## Author
 
-Batch size 16
+**Rajkumar Vijayan**
 
-```
-
-
-
-\### Batching Timeout
-
-
-
-How does waiting longer for a batch to fill affect throughput and tail latency?
-
-
-
-\---
-
-
-
-\## Limitations
-
-
-
-InferX is intended as a scheduler simulator rather than a production AI inference runtime.
-
-
-
-The initial versions will not execute real neural-network or GPU inference. Instead, inference execution will be simulated using configurable processing times.
-
-
-
-This allows the project to focus specifically on:
-
-
-
-\- scheduling
-
-\- batching
-
-\- concurrency
-
-\- synchronization
-
-\- performance measurement
-
-
-
-without requiring specialised AI hardware.
-
-
-
-\---
-
-
-
-\## Future Extensions
-
-
-
-Possible future extensions include:
-
-
-
-\- Deadline-aware scheduling
-
-\- Weighted priorities
-
-\- Adaptive batching
-
-\- Request cancellation
-
-\- Backpressure
-
-\- Rate limiting
-
-\- Multiple model queues
-
-\- Per-model batching
-
-\- Work stealing
-
-\- JSON configuration
-
-\- Trace-file workload replay
-
-\- ONNX Runtime integration
-
-\- Real model inference
-
-\- Metrics export
-
-
-
-These are future ideas rather than current project features.
-
-
-
-\---
-
-
-
-\## Learning Objectives
-
-
-
-InferX is being built as a practical exploration of:
-
-
-
-\- Modern C++
-
-\- Object-oriented design
-
-\- Data structures
-
-\- STL containers
-
-\- Scheduling algorithms
-
-\- Multithreading
-
-\- Synchronisation
-
-\- Producer-consumer systems
-
-\- CMake
-
-\- Automated testing
-
-\- Performance measurement
-
-\- Software architecture
-
-\- Technical documentation
-
-
-
-\---
-
-
-
-\## Author
-
-
-
-\*\*Rajkumar Vijayan\*\*
-
-
-
-MSc Software Development  
-
+MSc Software Development (International Systems)  
 University of Limerick, Ireland
 
+GitHub: [Rajkumar0863](https://github.com/Rajkumar0863)
 
+---
 
-GitHub: Rajkumar0863
+## Current Status
 
+**InferX v0.8**
 
+```text
+[✓] Request model
+[✓] FIFO scheduling
+[✓] Priority scheduling
+[✓] Dynamic batching
+[✓] Thread-safe queue
+[✓] Concurrent worker pool
+[✓] Performance metrics
+[✓] GoogleTest
+[✓] 8/8 automated tests passing
 
-\---
+[ ] Benchmark harness
+[ ] Large workload experiments
+[ ] CSV benchmark export
+[ ] GitHub Actions CI
+```
 
-
-
-\## License
-
-
-
-This project is released under the MIT License.
-
+Development will continue from the benchmark milestone.
